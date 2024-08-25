@@ -1,3 +1,4 @@
+import os
 import re
 import sqlite3
 from difflib import SequenceMatcher
@@ -109,7 +110,7 @@ def main() -> None:
     # 使用你的 Telegram bot token
     application = (
         Application.builder()
-        .token("7323085730:AAFyarRa7duoPVySNNOxVhQUd94rQLepQpc")
+        .token(os.getenv("TELEGRAM_TOKEN"))
         .build()
     )
 
