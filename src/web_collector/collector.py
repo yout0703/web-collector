@@ -1,9 +1,11 @@
 import os
 import re
 import sqlite3
+from datetime import datetime
 from difflib import SequenceMatcher
 
 import httpx
+from dotenv import load_dotenv
 from loguru import logger
 from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters
@@ -12,14 +14,28 @@ from telegram.ext import Application, MessageHandler, ContextTypes, filters
 conn = sqlite3.connect('websites.db')
 cursor = conn.cursor()
 
-# 创建表 c_website（如果尚未存在）
+# 创建表 c_website（如果尚未存在），增加 created_at 字段
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS c_website (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         theme TEXT,
         url TEXT UNIQUE,
         title TEXT,
-        response TEXT
+        response TEXT,
+        created_at TIMESTAMP
+    )
+''')
+conn.commit()
+
+# 创建历史表 c_website_history（如果尚未存在）
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS c_website_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        theme TEXT,
+        url TEXT,
+        title TEXT,
+        response TEXT,
+        created_at TIMESTAMP
     )
 ''')
 conn.commit()
@@ -87,22 +103,47 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 if not matched_theme:
                     cursor.execute('SELECT COUNT(*) FROM c_website')
                     record_count = cursor.fetchone()[0]
-                    matched_theme = f"theme_{record_count + 1}"
+                    matched_theme = f"模版_{record_count + 1}"
 
                 # 将新的记录插入到数据库
                 cursor.execute(
-                    'INSERT INTO c_website (theme, url, title, response) VALUES (?, ?, ?, ?)',
-                    (matched_theme, homepage, title, response_text)
+                    'INSERT INTO c_website (theme, url, title, response, created_at) VALUES (?, ?, ?, ?, ?)',
+                    (matched_theme, homepage, title, response_text, datetime.now())
                 )
                 conn.commit()
 
                 await update.message.reply_text(
                     f"添加成功！\n主页链接: {homepage}\n标题: {title}\n主题: {matched_theme}"
                 )
+
+    elif text == "列表":
+        # 获取并按 theme 分组展示数据
+        cursor.execute('SELECT theme, url, title FROM c_website ORDER BY theme')
+        websites = cursor.fetchall()
+
+        response = ""
+        current_theme = None
+        for website in websites:
+            if website[0] != current_theme:
+                current_theme = website[0]
+                response += f"\n{current_theme}:\n"
+
+            response += f"  - {website[1]}: {website[2]}\n"
+
+        if response:
+            await update.message.reply_text(response)
         else:
-            await update.message.reply_text("无法提取主页链接。")
+            await update.message.reply_text("当前没有记录。")
+
+    elif text == "清理":
+        # 将所有数据移动到历史表并清空原表
+        cursor.execute('INSERT INTO c_website_history SELECT * FROM c_website')
+        cursor.execute('DELETE FROM c_website')
+        conn.commit()
+        await update.message.reply_text("数据已清理并转移到历史记录中。")
+
     else:
-        await update.message.reply_text("这不是一个有效的链接。")
+        await update.message.reply_text("这不是一个有效的链接或命令。")
 
 
 # 主函数，用于启动机器人
@@ -124,4 +165,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # 自动加载 .env 到 环境变量中
+    load_dotenv()
     main()
