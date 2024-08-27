@@ -2,11 +2,12 @@ import os
 import re
 import sqlite3
 from datetime import datetime
-from difflib import SequenceMatcher
 
 import httpx
 from dotenv import load_dotenv
 from loguru import logger
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters
 
@@ -51,7 +52,7 @@ def extract_homepage(url: str) -> str:
 
 
 # 定义获取页面标题的函数
-def get_page_title(url: str) -> str:
+def get_page_title(url: str) -> (str, str):
     try:
         response = httpx.get(url, timeout=60, follow_redirects=True)
         logger.info(f"URL: {url}, {response.text[:200]}...")  # 只记录前200字符
@@ -68,16 +69,21 @@ def get_page_title(url: str) -> str:
         return f"HTTP error: {e}", ""
 
 
-# 定义计算相似度的函数
-def similarity(a: str, b: str) -> float:
-    return SequenceMatcher(None, a, b).ratio()
+# 使用 TF-IDF 和余弦相似度计算文本相似度
+def calculate_similarity(text1: str, text2: str) -> float:
+    vectorizer = TfidfVectorizer().fit_transform([text1, text2])
+    vectors = vectorizer.toarray()
+    cosine_sim = cosine_similarity(vectors)
+    s = cosine_sim[0, 1]  # 返回两个文本之间的相似度
+    logger.info(f"Similarity: {s}")
+    return s
 
 
 # 定义处理用户消息的函数
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
+    logger.info(f"Received message: {text}")
 
-    # 检查消息是否是 URL 类型
     if re.match(r"http[s]?://", text):
         homepage = extract_homepage(text)
         if homepage:
@@ -93,12 +99,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 cursor.execute('SELECT id, theme, response FROM c_website')
                 all_records = cursor.fetchall()
                 matched_theme = None
+                max_similarity = 0.0
 
                 for record in all_records:
                     existing_id, existing_theme, existing_response = record
-                    if similarity(existing_response, response_text) > 0.8:
+                    similarity = calculate_similarity(response_text, existing_response)
+                    if similarity > 0.9 and similarity > max_similarity:  # 0.8是一个相似度阈值，可以根据需要调整
                         matched_theme = existing_theme
-                        break
+                        max_similarity = similarity
 
                 if not matched_theme:
                     cursor.execute('SELECT COUNT(*) FROM c_website')
@@ -115,7 +123,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 await update.message.reply_text(
                     f"添加成功！\n主页链接: {homepage}\n标题: {title}\n主题: {matched_theme}"
                 )
-
     elif text == "列表":
         # 获取并按 theme 分组展示数据
         cursor.execute('SELECT theme, url, title FROM c_website ORDER BY theme')
@@ -147,7 +154,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 # 主函数，用于启动机器人
-def main() -> None:
+def start_bot() -> None:
     # 使用你的 Telegram bot token
     application = (
         Application.builder()
@@ -162,9 +169,7 @@ def main() -> None:
 
     # 启动机器人并开始轮询
     application.run_polling()
+    logger.info("Bot started.")
 
 
-if __name__ == "__main__":
-    # 自动加载 .env 到 环境变量中
-    load_dotenv()
-    main()
+
