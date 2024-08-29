@@ -155,7 +155,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 # 主函数，用于启动机器人
 def start_bot() -> None:
-    # 使用你的 Telegram bot token
+    #使用你的 Telegram bot token
     application = (
         Application.builder()
         .token(os.getenv("TELEGRAM_TOKEN"))
