@@ -4,7 +4,6 @@ import sqlite3
 from datetime import datetime
 
 import httpx
-from dotenv import load_dotenv
 from loguru import logger
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -155,7 +154,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 # 主函数，用于启动机器人
 def start_bot() -> None:
-    #使用你的 Telegram bot token
+    # 使用你的 Telegram bot token
     application = (
         Application.builder()
         .token(os.getenv("TELEGRAM_TOKEN"))
@@ -170,6 +169,3 @@ def start_bot() -> None:
     # 启动机器人并开始轮询
     application.run_polling()
     logger.info("Bot started.")
-
-
-
