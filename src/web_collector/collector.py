@@ -62,10 +62,8 @@ def get_page_title(url: str) -> (str, str):
         if match:
             return match.group(1).strip(), response.text
         return "No title found", response.text
-    except httpx.RequestError as e:
+    except Exception as e:
         return f"Request failed: {e}", ""
-    except httpx.HTTPStatusError as e:
-        return f"HTTP error: {e}", ""
 
 
 # 使用 TF-IDF 和余弦相似度计算文本相似度
@@ -79,6 +77,9 @@ def calculate_similarity(text1: str, text2: str) -> float:
 
 
 # 定义处理用户消息的函数
+import os
+import tempfile
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
     logger.info(f"Received message: {text}")
@@ -103,7 +104,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 for record in all_records:
                     existing_id, existing_theme, existing_response = record
                     similarity = calculate_similarity(response_text, existing_response)
-                    if similarity > 0.9 and similarity > max_similarity:  # 0.8是一个相似度阈值，可以根据需要调整
+                    if similarity > 0.9 and similarity > max_similarity:
                         matched_theme = existing_theme
                         max_similarity = similarity
 
@@ -122,22 +123,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 await update.message.reply_text(
                     f"添加成功！\n主页链接: {homepage}\n标题: {title}\n主题: {matched_theme}"
                 )
+
     elif text == "列表":
         # 获取并按 theme 分组展示数据
         cursor.execute('SELECT theme, url, title FROM c_website ORDER BY theme')
         websites = cursor.fetchall()
 
-        response = ""
-        current_theme = None
-        for website in websites:
-            if website[0] != current_theme:
-                current_theme = website[0]
-                response += f"\n{current_theme}:\n"
+        if websites:
+            # 创建一个临时文件来存储数据
+            with tempfile.NamedTemporaryFile(delete=False, mode='w', encoding='utf-8', suffix='.txt') as temp_file:
+                current_theme = None
+                for website in websites:
+                    if website[0] != current_theme:
+                        current_theme = website[0]
+                        temp_file.write(f"\n{current_theme}:\n")
 
-            response += f"  - {website[1]}: {website[2]}\n"
+                    temp_file.write(f"  - {website[1]}: {website[2]}\n")
 
-        if response:
-            await update.message.reply_text(response)
+                temp_file_path = temp_file.name
+
+            # 发送文件给用户
+            await context.bot.send_document(chat_id=update.message.chat_id, document=open(temp_file_path, 'rb'))
+
+            # 删除临时文件
+            os.remove(temp_file_path)
         else:
             await update.message.reply_text("当前没有记录。")
 
