@@ -1,4 +1,3 @@
-import os
 import re
 import sqlite3
 from datetime import datetime
@@ -77,8 +76,10 @@ def calculate_similarity(text1: str, text2: str) -> float:
 
 
 # 定义处理用户消息的函数
+
 import os
 import tempfile
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
@@ -96,22 +97,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 title, response_text = get_page_title(homepage)
 
                 # 查找相似的记录
-                cursor.execute('SELECT id, theme, response FROM c_website')
-                all_records = cursor.fetchall()
+                cursor.execute('SELECT theme, response FROM c_website GROUP BY theme')
+                theme_records = cursor.fetchall()
                 matched_theme = None
                 max_similarity = 0.0
 
-                for record in all_records:
-                    existing_id, existing_theme, existing_response = record
-                    similarity = calculate_similarity(response_text, existing_response)
+                for theme, response in theme_records:
+                    similarity = calculate_similarity(response_text, response)
                     if similarity > 0.9 and similarity > max_similarity:
-                        matched_theme = existing_theme
+                        matched_theme = theme
                         max_similarity = similarity
 
                 if not matched_theme:
-                    cursor.execute('SELECT COUNT(*) FROM c_website')
-                    record_count = cursor.fetchone()[0]
-                    matched_theme = f"模版_{record_count + 1}"
+                    cursor.execute('SELECT COUNT(DISTINCT theme) FROM c_website')
+                    theme_count = cursor.fetchone()[0]
+                    matched_theme = f"模版_{theme_count + 1}"
 
                 # 将新的记录插入到数据库
                 cursor.execute(
