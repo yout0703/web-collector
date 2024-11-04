@@ -120,7 +120,31 @@ class WebTemplateBot:
         wait_message = await update.message.reply_text("🔍 正在分析网站，请稍候...")
         
         try:
-            # 分析网站
+            # 首先检查域名是否已存在
+            existing_website = await self.db.get_website_by_host(message)
+            if existing_website:
+                template_id = existing_website.get('template_id')
+                if template_id:
+                    response_text = [
+                        "✅ 网站已存在于数据库中！\n",
+                        f"URL: {existing_website['url']}\n",
+                        f"模板 ID: #{template_id}\n",
+                        f"首次分析时间: {existing_website['first_analyzed_at']}\n",
+                        f"最后更新时间: {existing_website['last_updated_at']}"
+                    ]
+                else:
+                    response_text = [
+                        "✅ 网站已存在于数据库中！\n",
+                        f"URL: {existing_website['url']}\n",
+                        "该网站尚未归类到任何模板",
+                        f"首次分析时间: {existing_website['first_analyzed_at']}\n",
+                        f"最后更新时间: {existing_website['last_updated_at']}"
+                    ]
+                
+                await wait_message.edit_text("\n".join(response_text))
+                return
+            
+            # 如果域名不存在，继续进行分析
             features = await self.collector.analyze_url(message)
             if not features:
                 await wait_message.edit_text("❌ 无法分析该网站，请确保网站可访问")
@@ -167,10 +191,6 @@ class WebTemplateBot:
                 new_template_id = await self.db.create_template_from_website(website_id)
                 response_text.append(f"\n\n🆕 创建新模板 #{new_template_id}")
                 response_text.append("没有找到足够相似的现有模板")
-
-            # 添加性能指标
-            if features.performance_metrics and 'loadTime' in features.performance_metrics:
-                response_text.append(f"\n⚡ 加载时间: {features.performance_metrics['loadTime']}ms")
             
             # 添加JavaScript库信息
             if features.js_libraries:

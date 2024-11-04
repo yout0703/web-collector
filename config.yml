@@ -7,11 +7,11 @@ database:
   path: "website_templates.db"
 
 collector:
-  timeout: 30
+  timeout: 120  # 修改为120秒 (2分钟)
   max_retries: 3
 
 similarity:
-  threshold: 0.4  # 降低阈值
+  threshold: 0.4
 
 cleanup:
   days: 30 

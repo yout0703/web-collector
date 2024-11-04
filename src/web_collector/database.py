@@ -5,6 +5,7 @@ import json
 import logging
 from pathlib import Path
 from .collector import WebsiteFeatures
+from urllib.parse import urlparse
 
 class Database:
     """数据库管理类"""
@@ -311,3 +312,31 @@ class Database:
         except Exception as e:
             self.logger.error(f"获取分组网站列表失败: {str(e)}")
             return []
+
+    async def get_website_by_host(self, url: str) -> Optional[Dict]:
+        """根据域名获取网站信息"""
+        try:
+            # 解析URL获取host
+            parsed_url = urlparse(url)
+            host = parsed_url.netloc
+            
+            async with aiosqlite.connect(self.db_path) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(
+                    """
+                    SELECT w.*, t.id as template_id
+                    FROM websites w
+                    LEFT JOIN templates t ON w.template_id = t.id
+                    WHERE w.url LIKE ?
+                    ORDER BY w.last_updated_at DESC
+                    LIMIT 1
+                    """,
+                    (f"%{host}%",)
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    if row:
+                        return dict(row)
+            return None
+        except Exception as e:
+            self.logger.error(f"获取网站信息失败: {str(e)}")
+            return None

@@ -2,7 +2,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 from typing import Dict, List, Optional
 import asyncio
-from playwright.async_api import async_playwright, Page
+from playwright.async_api import async_playwright, Page, TimeoutError
 from bs4 import BeautifulSoup
 import json
 import logging
@@ -24,7 +24,6 @@ class WebsiteFeatures:
     def to_dict(self) -> dict:
         """转换为字典"""
         data = asdict(self)
-        # 转换datetime对象为字符串
         data['created_at'] = self.created_at.isoformat()
         data['updated_at'] = self.updated_at.isoformat()
         return data
@@ -36,7 +35,7 @@ class WebsiteFeatures:
 class WebCollector:
     """网站数据收集器"""
     
-    def __init__(self, timeout: int = 30):
+    def __init__(self, timeout: int = 120):
         self.timeout = timeout
         self.logger = logging.getLogger(__name__)
 
@@ -47,14 +46,26 @@ class WebCollector:
                 browser = await p.chromium.launch()
                 page = await browser.new_page()
                 
-                # 设置超时
+                # 设置基本超时
                 page.set_default_timeout(self.timeout * 1000)
                 
-                # 访问页面
-                await page.goto(url)
+                try:
+                    # 等待页面加载，但设置较短的超时时间以获取部分内容
+                    initial_timeout = min(30000, self.timeout * 1000)  # 30秒或总超时时间的较小值
+                    await page.goto(url, wait_until='domcontentloaded', timeout=initial_timeout)
+                except TimeoutError:
+                    self.logger.warning(f"页面加载超时，将基于已加载内容进行分析: {url}")
                 
-                # 收集特征
-                features = await self._collect_features(page, url)
+                try:
+                    # 收集特征，使用asyncio.wait_for来处理超时
+                    features = await asyncio.wait_for(
+                        self._collect_features(page, url),
+                        timeout=max(5, self.timeout - 30)  # 留出一些时间给清理工作
+                    )
+                except asyncio.TimeoutError:
+                    self.logger.warning("特征收集超时，使用已获取的数据")
+                    # 使用已获取的部分数据创建特征对象
+                    features = await self._collect_partial_features(page, url)
                 
                 await browser.close()
                 return features
@@ -63,15 +74,54 @@ class WebCollector:
             self.logger.error(f"分析URL时出错: {url}, 错误: {str(e)}")
             return None
 
-    async def _collect_features(self, page: Page, url: str) -> WebsiteFeatures:
-        """收集页面特征"""
-        dom_structure = await self._analyze_dom_structure(page)
-        css_classes = await self._extract_css_classes(page)
-        js_libraries = await self._detect_js_libraries(page)
-        responsive_features = await self._analyze_responsive_features(page)
-        color_scheme = await self._extract_color_scheme(page)
-        fonts = await self._extract_fonts(page)
-        performance_metrics = await self._collect_performance_metrics(page)
+    async def _collect_partial_features(self, page: Page, url: str) -> WebsiteFeatures:
+        """收集部分页面特征（用于超时情况）"""
+        try:
+            # 获取当前可用的DOM结构
+            dom_structure = await self._analyze_dom_structure(page)
+        except Exception:
+            dom_structure = {"tag": "body", "children": []}
+
+        try:
+            # 获取可见的CSS类
+            css_classes = await self._extract_css_classes(page)
+        except Exception:
+            css_classes = []
+
+        try:
+            # 检测已加载的JS库
+            js_libraries = await self._detect_js_libraries(page)
+        except Exception:
+            js_libraries = []
+
+        try:
+            # 获取响应式特征
+            responsive_features = await self._analyze_responsive_features(page)
+        except Exception:
+            responsive_features = {"viewport": None, "mediaQueries": []}
+
+        try:
+            # 获取颜色方案
+            color_scheme = await self._extract_color_scheme(page)
+        except Exception:
+            color_scheme = []
+
+        try:
+            # 获取字体信息
+            fonts = await self._extract_fonts(page)
+        except Exception:
+            fonts = []
+
+        try:
+            # 获取性能指标
+            performance_metrics = await self._collect_performance_metrics(page)
+        except Exception:
+            performance_metrics = {
+                "loadTime": 0,
+                "domContentLoaded": 0,
+                "firstPaint": 0,
+                "resourceCount": 0
+            }
 
         return WebsiteFeatures(
             url=url,
@@ -190,3 +240,44 @@ class WebCollector:
             };
         }''')
         return metrics
+
+    async def _collect_features(self, page: Page, url: str) -> WebsiteFeatures:
+        """收集页面特征"""
+        try:
+            # 获取当前可用的DOM结构
+            dom_structure = await self._analyze_dom_structure(page)
+            
+            # 获取可见的CSS类
+            css_classes = await self._extract_css_classes(page)
+            
+            # 检测已加载的JS库
+            js_libraries = await self._detect_js_libraries(page)
+            
+            # 获取响应式特征
+            responsive_features = await self._analyze_responsive_features(page)
+            
+            # 获取颜色方案
+            color_scheme = await self._extract_color_scheme(page)
+            
+            # 获取字体信息
+            fonts = await self._extract_fonts(page)
+            
+            # 获取性能指标
+            performance_metrics = await self._collect_performance_metrics(page)
+
+            return WebsiteFeatures(
+                url=url,
+                dom_structure=dom_structure,
+                css_classes=css_classes,
+                js_libraries=js_libraries,
+                responsive_features=responsive_features,
+                color_scheme=color_scheme,
+                fonts=fonts,
+                performance_metrics=performance_metrics,
+                created_at=datetime.now(),
+                updated_at=datetime.now()
+            )
+            
+        except Exception as e:
+            self.logger.error(f"收集特征时出错: {str(e)}")
+            raise
