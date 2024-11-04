@@ -1,0 +1,17 @@
+telegram:
+  token: "7323085730:AAFyarRa7duoPVySNNOxVhQUd94rQLepQpc"
+  admin_users:
+    - 123456789  # 管理员用户ID
+
+database:
+  path: "website_templates.db"
+
+collector:
+  timeout: 30
+  max_retries: 3
+
+similarity:
+  threshold: 0.4  # 降低阈值
+
+cleanup:
+  days: 30 
